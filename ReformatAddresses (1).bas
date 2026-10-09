@@ -1,0 +1,75 @@
+Option Explicit
+
+' Reformats addresses from:
+'   114 Canal St Ste 503, Pooler, GA 31322
+' to:
+'   114 Canal St
+'   Suite 503
+'   Pooler, GA 31322
+'
+' If text is selected, only the selection is processed.
+' If nothing is selected, the whole document is processed.
+' Each address must be on its own line (paragraph or table cell).
+
+Sub ReformatAddresses()
+    Dim lineBreak As String
+    lineBreak = Chr(11)   ' Line break (Shift+Enter). Change to vbCr for separate paragraphs.
+
+    Dim re As Object
+    Set re = CreateObject("VBScript.RegExp")
+    re.IgnoreCase = True
+    re.Global = False
+    re.Pattern = "^\s*(.+?)(?:,?\s+(Suite\b|Ste\b\.?|Apartment\b|Apt\b\.?|Unit\b|Building\b|Bldg\b\.?|#)\s*#?\s*([A-Za-z0-9\-]+))?\s*,\s*([^,]+?)\s*,\s*([A-Za-z]{2})\.?\s+(\d{5}(?:-\d{4})?)\s*$"
+
+    Dim rng As Range
+    If Selection.Type = wdSelectionIP Then
+        Set rng = ActiveDocument.Content
+    Else
+        Set rng = Selection.Range
+    End If
+
+    Application.UndoRecord.StartCustomRecord "Reformat Addresses"
+
+    Dim i As Long, changed As Long
+    Dim p As Range, m As Object
+    Dim txt As String, newText As String
+
+    For i = rng.Paragraphs.Count To 1 Step -1
+        Set p = rng.Paragraphs(i).Range.Duplicate
+        txt = p.Text
+
+        ' Remove paragraph mark and end-of-cell marker
+        Do While Len(txt) > 0 And (Right$(txt, 1) = vbCr Or Right$(txt, 1) = Chr(7))
+            txt = Left$(txt, Len(txt) - 1)
+        Loop
+
+        If re.Test(txt) Then
+            Set m = re.Execute(txt)(0)
+
+            newText = Trim$(m.SubMatches(0))
+            If Len(m.SubMatches(2) & "") > 0 Then
+                newText = newText & lineBreak & UnitLabel(m.SubMatches(1)) & m.SubMatches(2)
+            End If
+            newText = newText & lineBreak & Trim$(m.SubMatches(3)) & ", " & _
+                      UCase$(m.SubMatches(4)) & " " & m.SubMatches(5)
+
+            p.End = p.Start + Len(txt)
+            p.Text = newText
+            changed = changed + 1
+        End If
+    Next i
+
+    Application.UndoRecord.EndCustomRecord
+
+    MsgBox changed & " address(es) reformatted.", vbInformation, "Reformat Addresses"
+End Sub
+
+Private Function UnitLabel(ByVal t As String) As String
+    Select Case LCase$(Replace(t, ".", ""))
+        Case "ste", "suite": UnitLabel = "Suite "
+        Case "apt", "apartment": UnitLabel = "Apartment "
+        Case "unit": UnitLabel = "Unit "
+        Case "bldg", "building": UnitLabel = "Building "
+        Case "#": UnitLabel = "#"
+    End Select
+End Function
